@@ -1,10 +1,11 @@
-"Reads a NOAA data file and seperates meta-data and actual physical data"
-"Stores the meta-data in a JSON file and physical data in a npz compressed file"
-"To access the data from this compression and proccessing see data_access.py"
+# Reads a NOAA data file and seperates meta-data and actual physical data
+# Stores the meta-data in a JSON file and physical data in a npz compressed file
+# To access the data from this compression and proccessing see data_access.py
 
 from __future__ import annotations
 
 import csv
+import json
 import math
 from collections import Counter
 from dataclasses import dataclass
@@ -178,3 +179,73 @@ def ingest_noaa_csv(path: str | Path) -> WeatherDataset:
         missing_value_counts=missing_counts, raw_row_count=len(rows),
         duplicate_timestamp_count=duplicates, missing_timestamp_count=missing_timestamps,
     )
+
+
+def save_processed_weather(
+    dataset: WeatherDataset,
+    metadata_path: str | Path,
+    observations_path: str | Path,
+) -> None:
+    """Write a cleaned dataset as metadata JSON plus observations JSON or NPZ.
+
+    ``observations_path`` ending in ``.npz`` produces a compressed NumPy archive.
+    Any other suffix produces portable JSON.  Both formats are accepted by
+    ``data_access.WeatherData``.
+    """
+    metadata_destination = Path(metadata_path)
+    observations_destination = Path(observations_path)
+    metadata_destination.parent.mkdir(parents=True, exist_ok=True)
+    observations_destination.parent.mkdir(parents=True, exist_ok=True)
+
+    metadata = {
+        "station_id": dataset.metadata.station_id,
+        "station_name": dataset.metadata.station_name,
+        "latitude": dataset.metadata.latitude,
+        "longitude": dataset.metadata.longitude,
+        "elevation": dataset.metadata.elevation,
+        "report_type": dataset.metadata.report_type,
+        "source": dataset.metadata.source,
+        "start_time": dataset.metadata.start_time.isoformat(),
+        "end_time": dataset.metadata.end_time.isoformat(),
+        "observation_count": dataset.metadata.observation_count,
+        "nominal_sample_interval_seconds": dataset.metadata.nominal_sample_interval_seconds,
+        "timestamps_regular": dataset.metadata.timestamps_regular,
+        "units": NOAA_LCD_UNITS,
+        "missing_value_counts": dataset.missing_value_counts,
+        "raw_row_count": dataset.raw_row_count,
+        "duplicate_timestamp_count": dataset.duplicate_timestamp_count,
+        "missing_timestamp_count": dataset.missing_timestamp_count,
+    }
+    with metadata_destination.open("w", encoding="utf-8") as handle:
+        json.dump(metadata, handle, indent=2, allow_nan=True)
+
+    if observations_destination.suffix.lower() == ".npz":
+        try:
+            import numpy as np
+        except ImportError as error:
+            raise RuntimeError("Writing .npz files requires NumPy; use a .json path instead") from error
+        arrays = dict(dataset.observations)
+        # NPZ cannot store a mixed object array safely. Preserve sky text as
+        # unicode strings, with an empty string representing a missing value.
+        if "sky_conditions" in arrays:
+            arrays["sky_conditions"] = [value or "" for value in arrays["sky_conditions"]]
+        if dataset.time_offsets is not None:
+            arrays["time_offsets"] = dataset.time_offsets
+        np.savez_compressed(observations_destination, **arrays)
+    else:
+        payload: dict[str, object] = {"observations": dataset.observations}
+        if dataset.time_offsets is not None:
+            payload["time_offsets"] = dataset.time_offsets
+        with observations_destination.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, allow_nan=True)
+
+
+def process_noaa_csv(
+    csv_path: str | Path,
+    metadata_path: str | Path,
+    observations_path: str | Path,
+) -> WeatherDataset:
+    """Ingest a NOAA CSV, save its cleaned representation, and return it."""
+    dataset = ingest_noaa_csv(csv_path)
+    save_processed_weather(dataset, metadata_path, observations_path)
+    return dataset

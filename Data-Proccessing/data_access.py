@@ -1,7 +1,20 @@
-"This file pulls the information created in the file_access.py file"
+# This file pulls the information created in the file_access.py file
 """
 Available data points include
 
+Station/dataset metadata:
+    station_id, station_name, latitude, longitude, elevation, report_type,
+    source, start_time, end_time, observation_count,
+    nominal_sample_interval_seconds, timestamps_regular
+
+Time-varying observations (kept in the original NOAA LCD units):
+    temperature, dew_point, relative_humidity, sea_level_pressure,
+    station_pressure, wind_direction, wind_speed, wind_gust_speed,
+    precipitation, visibility, sky_conditions
+
+Timing data:
+    time_offsets is present only when timestamps are irregular. Otherwise each
+    timestamp is reconstructed from start_time and sample_interval.
 """
 from __future__ import annotations
 
@@ -66,7 +79,14 @@ class WeatherData:
             except (ImportError, OSError, ValueError) as error:
                 raise ValueError(f"Cannot load NPZ observations file {path}: {error}") from error
             offsets = archive["time_offsets"] if "time_offsets" in archive.files else None
-            return ({key: archive[key] for key in archive.files if key != "time_offsets"}, offsets)
+            observations = {key: archive[key] for key in archive.files if key != "time_offsets"}
+            # file_reader encodes NPZ sky-condition missing values as empty
+            # unicode strings because object arrays are unsafe to load.
+            if "sky_conditions" in observations:
+                observations["sky_conditions"] = [
+                    str(value) if str(value) else None for value in observations["sky_conditions"]
+                ]
+            return observations, offsets
         try:
             with path.open(encoding="utf-8") as handle:
                 payload = json.load(handle)
@@ -122,10 +142,13 @@ class WeatherData:
     latitude = property(lambda self: self._metadata["latitude"])
     longitude = property(lambda self: self._metadata["longitude"])
     elevation = property(lambda self: self._metadata["elevation"])
+    report_type = property(lambda self: self._metadata["report_type"])
+    source = property(lambda self: self._metadata["source"])
     start_time = property(lambda self: self._metadata["start_time"])
     end_time = property(lambda self: self._metadata["end_time"])
     sample_interval = property(lambda self: self._metadata["nominal_sample_interval_seconds"])
     observation_count = property(lambda self: self._metadata["observation_count"])
+    timestamps_regular = property(lambda self: self._metadata["timestamps_regular"])
 
     def variables(self) -> tuple[str, ...]:
         return tuple(self._observations)
