@@ -1,0 +1,54 @@
+{
+  "station_id": "AGI0000DAOV",
+  "station_name": "GHRISS, AG",
+  "latitude": 35.207725,
+  "longitude": 0.147142,
+  "elevation": 513.9,
+  "report_type": "mixed",
+  "report_type_values": [
+    "FM-12",
+    "FM-15",
+    "FM-16",
+    "FM94_1"
+  ],
+  "source": "mixed",
+  "source_values": [
+    "223",
+    "412",
+    "413"
+  ],
+  "start_time": "2026-01-01T00:00:00",
+  "end_time": "2026-09-19T23:00:00",
+  "observation_count": 6263,
+  "nominal_sample_interval_seconds": 3600.0,
+  "timestamps_regular": false,
+  "units": {
+    "temperature": "degrees Fahrenheit",
+    "dew_point": "degrees Fahrenheit",
+    "relative_humidity": "percent",
+    "sea_level_pressure": "millibars",
+    "station_pressure": "millibars",
+    "wind_direction": "degrees true",
+    "wind_speed": "miles per hour",
+    "wind_gust_speed": "miles per hour",
+    "precipitation": "inches",
+    "visibility": "miles",
+    "sky_conditions": "NOAA sky-condition text"
+  },
+  "missing_value_counts": {
+    "temperature": 20,
+    "dew_point": 21,
+    "relative_humidity": 21,
+    "sea_level_pressure": 1415,
+    "station_pressure": 5210,
+    "wind_direction": 376,
+    "wind_speed": 5,
+    "wind_gust_speed": 6139,
+    "precipitation": 6263,
+    "visibility": 4299,
+    "sky_conditions": 589
+  },
+  "raw_row_count": 6263,
+  "duplicate_timestamp_count": 0,
+  "missing_timestamp_count": 53
+}

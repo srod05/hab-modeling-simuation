@@ -46,7 +46,9 @@ class WeatherMetadata:
     longitude: float
     elevation: float
     report_type: str
+    report_type_values: tuple[str, ...]
     source: str
+    source_values: tuple[str, ...]
     start_time: datetime
     end_time: datetime
     observation_count: int
@@ -97,6 +99,13 @@ def _constant_metadata(rows: list[dict[str, str]]) -> dict[str, object]:
     for name, column in _METADATA_COLUMNS.items():
         distinct = {row.get(column, "").strip() for row in rows}
         if len(distinct) != 1:
+            # NOAA uses REPORT_TYPE to describe the report format (for example,
+            # FM-12 versus FM-15), so it may legitimately vary at one station.
+            # Keep this compactly in metadata rather than repeating it per row.
+            if name in {"report_type", "source"} and all(distinct):
+                values[name] = "mixed"
+                values[f"{name}_values"] = tuple(sorted(distinct))
+                continue
             raise ValueError(f"Inconsistent metadata in {column}: {sorted(distinct)!r}")
         value = distinct.pop()
         if name in _NUMERIC_METADATA:
@@ -108,6 +117,8 @@ def _constant_metadata(rows: list[dict[str, str]]) -> dict[str, object]:
             raise ValueError(f"Missing required metadata {column!r}")
         else:
             values[name] = value
+            if name in {"report_type", "source"}:
+                values[f"{name}_values"] = (value,)
     return values
 
 def _timing_summary(times: list[datetime]) -> tuple[Optional[float], bool, int, int]:
@@ -204,7 +215,9 @@ def save_processed_weather(
         "longitude": dataset.metadata.longitude,
         "elevation": dataset.metadata.elevation,
         "report_type": dataset.metadata.report_type,
+        "report_type_values": list(dataset.metadata.report_type_values),
         "source": dataset.metadata.source,
+        "source_values": list(dataset.metadata.source_values),
         "start_time": dataset.metadata.start_time.isoformat(),
         "end_time": dataset.metadata.end_time.isoformat(),
         "observation_count": dataset.metadata.observation_count,

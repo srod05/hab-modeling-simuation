@@ -4,7 +4,8 @@ Available data points include
 
 Station/dataset metadata:
     station_id, station_name, latitude, longitude, elevation, report_type,
-    source, start_time, end_time, observation_count,
+    report_type_values, source, source_values, start_time, end_time,
+    observation_count,
     nominal_sample_interval_seconds, timestamps_regular
 
 Time-varying observations (kept in the original NOAA LCD units):
@@ -143,7 +144,9 @@ class WeatherData:
     longitude = property(lambda self: self._metadata["longitude"])
     elevation = property(lambda self: self._metadata["elevation"])
     report_type = property(lambda self: self._metadata["report_type"])
+    report_type_values = property(lambda self: tuple(self._metadata.get("report_type_values", [self.report_type])))
     source = property(lambda self: self._metadata["source"])
+    source_values = property(lambda self: tuple(self._metadata.get("source_values", [self.source])))
     start_time = property(lambda self: self._metadata["start_time"])
     end_time = property(lambda self: self._metadata["end_time"])
     sample_interval = property(lambda self: self._metadata["nominal_sample_interval_seconds"])
