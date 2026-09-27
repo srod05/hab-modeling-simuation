@@ -1,11 +1,6 @@
 "Reads a NOAA data file and seperates meta-data and actual physical data"
 "Stores the meta-data in a JSON file and physical data in a npz compressed file"
 "To access the data from this compression and proccessing see data_access.py"
-"""Compact ingestion of NOAA Local Climatological Data CSV files.
-
-No unit conversion is performed. Values retain NOAA's source units; callers can
-consult ``NOAA_LCD_UNITS`` before using them in a model.
-"""
 
 from __future__ import annotations
 
@@ -42,7 +37,6 @@ _METADATA_COLUMNS = {
 }
 _NUMERIC_METADATA = {"latitude", "longitude", "elevation"}
 
-
 @dataclass(frozen=True)
 class WeatherMetadata:
     station_id: str
@@ -57,7 +51,6 @@ class WeatherMetadata:
     observation_count: int
     nominal_sample_interval_seconds: Optional[float]
     timestamps_regular: bool
-
 
 @dataclass
 class WeatherDataset:
@@ -88,18 +81,15 @@ class WeatherDataset:
             "missing_value_counts": self.missing_value_counts.copy(),
         }
 
-
 def _parse_time(value: str) -> datetime:
     value = value.strip()
     return datetime.fromisoformat(value[:-1] + "+00:00" if value.endswith("Z") else value)
-
 
 def _number(value: str) -> float:
     try:
         return float(value.strip()) if value and value.strip() else math.nan
     except ValueError:
         return math.nan
-
 
 def _constant_metadata(rows: list[dict[str, str]]) -> dict[str, object]:
     values: dict[str, object] = {}
@@ -119,7 +109,6 @@ def _constant_metadata(rows: list[dict[str, str]]) -> dict[str, object]:
             values[name] = value
     return values
 
-
 def _timing_summary(times: list[datetime]) -> tuple[Optional[float], bool, int, int]:
     """Return nominal interval, regularity, duplicates, and inferred gap count."""
     if len(times) < 2:
@@ -136,7 +125,6 @@ def _timing_summary(times: list[datetime]) -> tuple[Optional[float], bool, int, 
         if round(delta / nominal) > 1 and math.isclose(delta / nominal, round(delta / nominal), abs_tol=1e-9)
     )
     return nominal, regular, duplicates, missing
-
 
 def ingest_noaa_csv(path: str | Path) -> WeatherDataset:
     """Read, validate, sort, and compact a NOAA LCD CSV.
