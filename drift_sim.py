@@ -1,70 +1,173 @@
-# drift simulation
+"""
+DRIFT SIMULATION VERSION 2
+James Wan
+10/11/2026
+"""
 
-from datetime import datetime, timedelta
+# IMPORTS
+# -----------------------------
+
 import math
+import numpy as np
+import pandas as pd
+from scipy.spatial.distance import cdist
+
+
+# CONSTANTS
+# -----------------------------
+
+GRAVITY = 9.81          # m/s^2
+TIME_STEP = 1.0         # seconds
+
+METERS_PER_DEG_LAT = 111320.0
+
+
+# BALLOON OBJECT
+# -----------------------------
 
 class Balloon:
+    """
+    Stores physical properties and current state of the balloon system.
+    """
 
-    def __init__(self, lat, long, altitude, time):
-        '''
-        Initializes the balloon
+    def __init__(
+        self,
+        payload_mass,
+        balloon_mass,
+        helium_mass,
+        launch_lat,
+        launch_lon,
+        launch_altitude,
+        burst_altitude
+    ):
 
-        Args:
-            lat:  Initial latitude (degrees)
-            long: Initial longitude (degrees)
-            altitude: Initial altitude (m)
-            time: Initial time (as datetime)
-        '''
-        self.lat = lat
-        self.long = long
-        self.altitude = altitude
-        self.time = time
-    
-    def update_position(self, wind_x, wind_y, new_altitude, new_time):
-        '''
-        Calculates the new position of the balloon
+        # Physical properties
+        self.payload_mass = payload_mass
+        self.balloon_mass = balloon_mass
+        self.helium_mass = helium_mass
 
-        Args:
-            wind_x: Current wind east vector (m/s)
-            wind_y: Current wind north vector (m/s)
-            new_altitude: New latitude
-            new_time: New time
+        # Position
+        self.latitude = launch_lat
+        self.longitude = launch_lon
+        self.altitude = launch_altitude
+
+        # Cartesian displacement from launch point
+        self.x = 0.0
+        self.y = 0.0
+
+        # Velocity
+        self.vx = 0.0
+        self.vy = 0.0
+        self.vz = 0.0
+
+        # Flight properties
+        self.burst_altitude = burst_altitude
+        self.phase = "ascent"
+
+        # Simulation time
+        self.time = 0.0
+
+        # Complete trajectory storage
+        self.history = []
+
+
+    def save_state(self):
+        """
+        Save current balloon state to trajectory history.
+        """
+
+        self.history.append({
+            "time": self.time,
+            "latitude": self.latitude,
+            "longitude": self.longitude,
+            "x": self.x,
+            "y": self.y,
+            "altitude": self.altitude,
+            "vx": self.vx,
+            "vy": self.vy,
+            "vz": self.vz,
+            "phase": self.phase
+        })
+
+# DRIFT SIMULATION
+# -----------------------------
+
+def load_df():
+    """
+    Loads the ERA5 data from a CSV file into a pandas DataFrame.
+    """
+    df = pd.read_csv("era5_october_data.csv", index_col=0, parse_dates=True)
+    return df
+
+def get_wind(balloon, df):
+    """
+    Gets the wind's x and y components at the balloon's location
+    Sets the wind as the balloon's vx and vy
+
+    Args:
+        balloon: The Balloon object
+        df: The pandas DataFrame containing ERA5 wind data
+    """
+     
+    target_lat, target_lon = balloon.latitude, balloon.longitude
+
+    coords = np.array(df[['latitude', 'longitude']].values)
+    target = np.array([[target_lat, target_lon]])
+
+    distances = cdist(target, coords, metric='euclidean')
+
+    nearest_index = distances.argmin(axis=1)
+
+    nearest_row = df.iloc[nearest_index[0]]
+
+    balloon.vx, balloon.vy = nearest_row['u'], nearest_row['v']
+
+
+def drift_step(balloon, dt=TIME_STEP):
+    """
+    Runs one step of the drift simulation
+    Calculates the change in position and updates 
+
+    Args:
+        balloon: The Balloon object
+        dt: Change in time (seconds)
+    """
+
+    # calculate change in position
+    dx = balloon.vx * dt
+    dy = balloon.vy * dt
         
-        Returns:
-            float tuple
-            The new latitude, longitude, and altitude.
-            Also updates the balloon internally
-        '''
-        x_distance = wind_x * (new_time - self.time).total_seconds()
-        y_distance = wind_y * (new_time - self.time).total_seconds()
-        new_lat  = self.lat + x_distance / 111320 # 111,320 m per degree of latitude
-        new_long = self.long + y_distance / (111320 * math.cos(math.radians(self.lat)))
+    # update cartesian position
+    balloon.x += dx
+    balloon.y += dy
 
-        self.lat = new_lat
-        self.long = new_long
-        self.altitude = new_altitude
+    # update lat/long
+    balloon.latitude += dx / METERS_PER_DEG_LAT
+    balloon.longitude += dy / (METERS_PER_DEG_LAT * math.cos(math.radians(balloon.latitude)))
 
-        return self.get_position()
+    # update time
+    balloon.time += dt
 
-    def get_position(self):
-        '''
-        Returns the balloon's current position in latitude and longitude degrees and its height (meters).
-        '''
-        return (self.lat, self.long, self.altitude)
+# RUN SIMULATION
+# -----------------------------
 
+b = Balloon(
+    payload_mass=1.5,
+    balloon_mass=1.2,
+    helium_mass=0.4,
+    launch_lat=40.0,
+    launch_lon=-75.0,
+    launch_altitude=9000.0,
+    burst_altitude=9000.0
+)
 
-t = datetime.now()
-b = Balloon(0, 0, 0, t)
+b.phase = "drift"
+df = load_df()
 
-# test
-print(f"Balloon's starting position: {b.get_position()}")
-print(f"After one minute: {b.update_position(10, 10, 30, t + timedelta(seconds=60))}")
+while (b.time <= 3600.0):  # Simulate for 1 hour
+    get_wind(b, df)
+    drift_step(b)
+    b.save_state()
 
-# balloonIsFloating = True
-
-# while (balloonIsFloating):
-    # in 60-second increments, check data for nearest wind vector neighbor
-    # run update_position() based on this data
-    # considerations if we only have surface wind data: power or log law
-    # farther away from surface:  use other data (radiosonde or ERA5)
-    # do i need to consider pressure levels?
+history_df = pd.DataFrame(b.history)
+history_df.to_csv("balloon_trajectory.csv", index=False)
