@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import math
 import re
+from numbers import Real
 from datetime import date as Date
 from datetime import datetime, time, timedelta
 from pathlib import Path
@@ -35,6 +36,7 @@ _REQUIRED_METADATA = {
     "nominal_sample_interval_seconds", "timestamps_regular",
 }
 _TIME_ONLY = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
+_TEXT_VARIABLES = {"sky_conditions"}
 
 
 class WeatherData:
@@ -104,6 +106,15 @@ class WeatherData:
             raise ValueError("Observations must be a non-empty mapping of variable arrays")
         if not all(isinstance(values, list) for values in observations.values()):
             raise ValueError("Each JSON observation variable must be an array")
+        observations = {
+            name: [
+                (None if value in (None, "") else value)
+                if name in _TEXT_VARIABLES
+                else (math.nan if value is None else value)
+                for value in values
+            ]
+            for name, values in observations.items()
+        }
         return observations, offsets
 
     def _validate(self) -> None:
@@ -166,6 +177,30 @@ class WeatherData:
         """Return a read-only mapping to loaded arrays without copying them."""
         return MappingProxyType(self._observations)
 
+    def validate_numerical(self, variables: str | Sequence[str]) -> None:
+        """Ensure required model inputs contain only finite numeric values."""
+        selected = [variables] if isinstance(variables, str) else list(variables)
+        if not selected:
+            raise ValueError("At least one required numerical variable must be selected")
+        for name in selected:
+            values = self.get_variable(name)
+            invalid = [
+                index for index, value in enumerate(values)
+                if isinstance(value, bool)
+                or not isinstance(value, Real)
+                or not math.isfinite(float(value))
+            ]
+            if invalid:
+                preview = ", ".join(str(index) for index in invalid[:5])
+                remainder = "..." if len(invalid) > 5 else ""
+                raise ValueError(
+                    f"Required numerical variable {name!r} contains {len(invalid)} "
+                    f"missing, non-finite, or non-numeric value(s) at observation "
+                    f"index(es) {preview}{remainder}"
+                )
+
+    validate_for_modeling = validate_numerical
+
     def time_at(self, index: int) -> datetime:
         if not isinstance(index, int):
             raise TypeError("Observation index must be an integer")
@@ -189,15 +224,19 @@ class WeatherData:
         if isinstance(value, datetime):
             if query_date is not None:
                 raise ValueError("Do not supply date= when using a full datetime")
-            return value
+            result = value
+            return self._validate_query_timezone(result)
         if not isinstance(value, str):
             raise TypeError("Time must be a datetime or a 'HH:MM' string")
         match = _TIME_ONLY.fullmatch(value)
         if not match:
             try:
-                return datetime.fromisoformat(value)
+                result = datetime.fromisoformat(value)
             except ValueError as error:
                 raise ValueError("Time must be datetime, ISO datetime, or 24-hour 'HH:MM'") from error
+            if query_date is not None:
+                raise ValueError("Do not supply date= when using a full ISO datetime")
+            return self._validate_query_timezone(result)
         if query_date is None:
             if self.start_time.date() != self.end_time.date():
                 raise ValueError("Military time is ambiguous for multi-day data; supply date='YYYY-MM-DD'")
@@ -210,6 +249,13 @@ class WeatherData:
             except (TypeError, ValueError) as error:
                 raise ValueError("date must be an ISO date such as '2026-01-01'") from error
         return datetime.combine(day, time(int(match[1]), int(match[2])), tzinfo=self.start_time.tzinfo)
+
+    def _validate_query_timezone(self, value: datetime) -> datetime:
+        dataset_is_aware = self.start_time.utcoffset() is not None
+        value_is_aware = value.utcoffset() is not None
+        if dataset_is_aware != value_is_aware:
+            raise ValueError("Query datetime timezone awareness must match the weather data")
+        return value
 
     def index_at_time(self, value: str | datetime, date: str | Date | None = None, *, nearest: bool = False) -> int:
         target = self._datetime(value, date)
@@ -246,7 +292,7 @@ class WeatherData:
         else:
             try:
                 day = Date.fromisoformat(value)
-            except ValueError as error:
+            except (TypeError, ValueError) as error:
                 raise ValueError("day must be an ISO date such as '2026-01-01'") from error
         start = datetime.combine(day, time.min, tzinfo=self.start_time.tzinfo)
         return self.range(start, start + timedelta(days=1) - timedelta(microseconds=1), variables=variables)

@@ -62,9 +62,11 @@ class WeatherDataset:
     observations: dict[str, list[float | str | None]]
     time_offsets: Optional[list[float]]
     missing_value_counts: dict[str, int]
+    malformed_value_counts: dict[str, int]
     raw_row_count: int
     duplicate_timestamp_count: int
     missing_timestamp_count: int
+    invalid_timestamp_count: int
 
     def time_at(self, index: int) -> datetime:
         """Reconstruct a compact timestamp or retrieve an explicit one."""
@@ -81,10 +83,14 @@ class WeatherDataset:
             "timestamps_regular": self.metadata.timestamps_regular,
             "duplicate_timestamp_count": self.duplicate_timestamp_count,
             "missing_timestamp_count": self.missing_timestamp_count,
+            "invalid_timestamp_count": self.invalid_timestamp_count,
             "missing_value_counts": self.missing_value_counts.copy(),
+            "malformed_value_counts": self.malformed_value_counts.copy(),
         }
 
-def _parse_time(value: str) -> datetime:
+def _parse_time(value: str | None) -> datetime:
+    if value is None or not value.strip():
+        raise ValueError("timestamp is missing")
     value = value.strip()
     return datetime.fromisoformat(value[:-1] + "+00:00" if value.endswith("Z") else value)
 
@@ -93,6 +99,19 @@ def _number(value: str) -> float:
         return float(value.strip()) if value and value.strip() else math.nan
     except ValueError:
         return math.nan
+
+
+def _measurement_number(value: str | None) -> tuple[float, str | None]:
+    """Return a numeric measurement and its problem type, if any."""
+    if value is None or not value.strip():
+        return math.nan, "missing"
+    try:
+        number = float(value)
+    except ValueError:
+        return math.nan, "malformed"
+    if not math.isfinite(number):
+        return math.nan, "malformed"
+    return number, None
 
 def _constant_metadata(rows: list[dict[str, str]]) -> dict[str, object]:
     values: dict[str, object] = {}
@@ -155,30 +174,38 @@ def ingest_noaa_csv(path: str | Path) -> WeatherDataset:
         raise ValueError("NOAA CSV contains no data rows")
     metadata_values = _constant_metadata(rows)
     dated_rows = []
+    invalid_timestamp_count = 0
     for row in rows:
         try:
             dated_rows.append((_parse_time(row.get("DATE", "")), row))
         except (TypeError, ValueError):
-            continue
+            invalid_timestamp_count += 1
     if not dated_rows:
-        raise ValueError("NOAA CSV contains no usable DATE values")
+        raise ValueError(
+            "NOAA CSV contains no usable DATE values "
+            f"({invalid_timestamp_count} invalid or missing timestamp(s))"
+        )
     dated_rows.sort(key=lambda item: item[0])
     times = [item[0] for item in dated_rows]
     nominal, regular, duplicates, missing_timestamps = _timing_summary(times)
 
     observations: dict[str, list[float | str | None]] = {name: [] for name in _VARIABLES}
     missing_counts = {name: 0 for name in _VARIABLES}
+    malformed_counts = {name: 0 for name in _VARIABLES}
     for _, row in dated_rows:
         for name, column in _VARIABLES.items():
             raw = row.get(column, "") if column in columns else ""
             if name in _TEXT_VARIABLES:
                 value: float | str | None = raw.strip() or None
-                absent = value is None
+                if value is None:
+                    missing_counts[name] += 1
             else:
-                value = _number(raw)
-                absent = math.isnan(value)
+                value, problem = _measurement_number(raw)
+                if problem == "missing":
+                    missing_counts[name] += 1
+                elif problem == "malformed":
+                    malformed_counts[name] += 1
             observations[name].append(value)
-            missing_counts[name] += absent
     start, end = times[0], times[-1]
     metadata = WeatherMetadata(
         **metadata_values, start_time=start, end_time=end, observation_count=len(times),
@@ -187,8 +214,10 @@ def ingest_noaa_csv(path: str | Path) -> WeatherDataset:
     return WeatherDataset(
         metadata=metadata, observations=observations,
         time_offsets=None if regular else [(time - start).total_seconds() for time in times],
-        missing_value_counts=missing_counts, raw_row_count=len(rows),
+        missing_value_counts=missing_counts, malformed_value_counts=malformed_counts,
+        raw_row_count=len(rows),
         duplicate_timestamp_count=duplicates, missing_timestamp_count=missing_timestamps,
+        invalid_timestamp_count=invalid_timestamp_count,
     )
 
 
@@ -225,12 +254,14 @@ def save_processed_weather(
         "timestamps_regular": dataset.metadata.timestamps_regular,
         "units": NOAA_LCD_UNITS,
         "missing_value_counts": dataset.missing_value_counts,
+        "malformed_value_counts": dataset.malformed_value_counts,
         "raw_row_count": dataset.raw_row_count,
         "duplicate_timestamp_count": dataset.duplicate_timestamp_count,
         "missing_timestamp_count": dataset.missing_timestamp_count,
+        "invalid_timestamp_count": dataset.invalid_timestamp_count,
     }
     with metadata_destination.open("w", encoding="utf-8") as handle:
-        json.dump(metadata, handle, indent=2, allow_nan=True)
+        json.dump(metadata, handle, indent=2, allow_nan=False)
 
     if observations_destination.suffix.lower() == ".npz":
         try:
@@ -246,11 +277,18 @@ def save_processed_weather(
             arrays["time_offsets"] = dataset.time_offsets
         np.savez_compressed(observations_destination, **arrays)
     else:
-        payload: dict[str, object] = {"observations": dataset.observations}
+        observations = {
+            name: [
+                None if isinstance(value, float) and not math.isfinite(value) else value
+                for value in values
+            ]
+            for name, values in dataset.observations.items()
+        }
+        payload: dict[str, object] = {"observations": observations}
         if dataset.time_offsets is not None:
             payload["time_offsets"] = dataset.time_offsets
         with observations_destination.open("w", encoding="utf-8") as handle:
-            json.dump(payload, handle, allow_nan=True)
+            json.dump(payload, handle, allow_nan=False)
 
 
 def process_noaa_csv(
