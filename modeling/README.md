@@ -1,4 +1,4 @@
-# hab-modeling-simuation
+# Modeling for High-Altitude Balloon Trajectory
 
 ## Plotting the sample trajectory
 
