@@ -117,11 +117,6 @@ class Balloon:
         Vertical motion after burst: payload falls at terminal velocity,
         where gravity balances parachute + box drag:
             m g = 0.5 * rho * v^2 * CdA   ->   v = sqrt(2 m g / (rho * CdA))
-        Thinner air up high -> falls faster; slows near the ground.
-
-        Only updates vz and altitude. Horizontal motion (vx, vy, x, y,
-        lat, lon) is handled by the Drift module; time is advanced
-        by the main loop.
         """
         rho = SEA_LEVEL_DENSITY * math.exp(-self.altitude / SCALE_HEIGHT)
         self.vz = -math.sqrt(2 * self.payload_mass * GRAVITY / (rho * DESCENT_DRAG_AREA))
