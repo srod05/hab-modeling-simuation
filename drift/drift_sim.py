@@ -1,7 +1,7 @@
 """
-DRIFT SIMULATION VERSION 2
+DRIFT SIMULATION VERSION 3
 James Wan
-10/11/2026
+10/18/2026
 """
 
 # IMPORTS
@@ -10,6 +10,7 @@ James Wan
 import math
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 from scipy.spatial.distance import cdist
 
 
@@ -171,3 +172,16 @@ while (b.time <= 3600.0):  # Simulate for 1 hour
 
 history_df = pd.DataFrame(b.history)
 history_df.to_csv("balloon_trajectory.csv", index=False)
+print(history_df.head())
+
+# PLOT
+# -----------------------------
+
+plt.figure(figsize=(10, 6))
+plt.plot(history_df['longitude'], history_df['latitude'], marker='o', markersize=2, linestyle='-', color='blue')
+plt.title("Drift trajectory")
+plt.grid()
+plt.xlabel("Longitude")
+plt.ylabel("Latitude")
+plt.savefig("drift_trajectory.png")
+print(plt.show())
