@@ -25,6 +25,21 @@ import pandas as pd
 GRAVITY = 9.81          # m/s^2
 TIME_STEP = 1.0         # seconds
 
+# Atmosphere (simple exponential model)
+SEA_LEVEL_DENSITY = 1.225   # kg/m^3
+SCALE_HEIGHT = 8500.0       # m
+
+# Descent hardware
+INCH_TO_M = 0.0254
+PARACHUTE_DIAMETER = 30.0 * INCH_TO_M   
+PARACHUTE_CD = 1.5     #drag coefficient                 
+BOX_SIDE = 10.0 * INCH_TO_M             # m (10 x 10 in bottom face)
+BOX_CD = 1.05                        
+
+# Total drag area Cd*A of parachute + payload box, m^2
+DESCENT_DRAG_AREA = (PARACHUTE_CD * math.pi * (PARACHUTE_DIAMETER / 2) ** 2
+                     + BOX_CD * BOX_SIDE ** 2)
+
 
 # BALLOON OBJECT
 # -----------------------------
@@ -92,5 +107,28 @@ class Balloon:
             "vz": self.vz,
             "phase": self.phase
         })
+
+
+    # DESCENT
+    # -----------------------------
+
+    def descent_step(self, dt=TIME_STEP, ground_altitude=0.0):
+        """
+        Vertical motion after burst: payload falls at terminal velocity,
+        where gravity balances parachute + box drag:
+            m g = 0.5 * rho * v^2 * CdA   ->   v = sqrt(2 m g / (rho * CdA))
+        Thinner air up high -> falls faster; slows near the ground.
+
+        Only updates vz and altitude. Horizontal motion (vx, vy, x, y,
+        lat, lon) is handled by the Drift module; time is advanced
+        by the main loop.
+        """
+        rho = SEA_LEVEL_DENSITY * math.exp(-self.altitude / SCALE_HEIGHT)
+        self.vz = -math.sqrt(2 * self.payload_mass * GRAVITY / (rho * DESCENT_DRAG_AREA))
+        self.altitude += self.vz * dt
+
+        if self.altitude <= ground_altitude:
+            self.altitude = ground_altitude
+            self.phase = "landed"
 
 # -----------------------------
