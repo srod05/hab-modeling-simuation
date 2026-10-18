@@ -1,0 +1,16 @@
+# Synthetic noisy balloon path: time in seconds, x/y in meters, z altitude in meters
+# Irregular offsets mimic changing drift and measurement variation; these are not flight measurements.
+time,x,y,z
+0,0,0,900
+300,153.1,16.35,1586.3
+600,177.4,150.4,2210.2
+900,472.9,72.15,2991.7
+1200,474.6,286.6,3595.8
+1500,757.5,208.75,4387.5
+1800,831.6,388.6,5026.8
+2100,1206.9,291.15,5898.7
+2400,1328.4,511.4,6553.2
+2700,1701.1,474.35,7390.3
+3000,1805,665,8075
+3300,2200.1,593.35,8987.3
+3600,2401.4,769.4,9707.2
