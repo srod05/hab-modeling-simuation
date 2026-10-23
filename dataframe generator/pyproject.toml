@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=65"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pac-wind-interpolation"
+version = "0.1.0"
+description = "ERA5 wind interpolation with a Pandas DataFrame output"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24", "pandas>=2.0", "h5py>=3.8"]
+
+[tool.setuptools.packages.find]
+include = ["wind_interpolation*"]

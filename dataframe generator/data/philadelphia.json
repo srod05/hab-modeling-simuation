@@ -1,0 +1,45 @@
+{
+  "grid_points": {
+    "SW": {
+      "latitude": 39.0,
+      "longitude": -76.0,
+      "levels": {
+        "500": {"u_ms": 8.0, "v_ms": 2.0, "altitude_m": 5600},
+        "250": {"u_ms": 12.0, "v_ms": -4.0, "altitude_m": 10200},
+        "100": {"u_ms": 18.0, "v_ms": -7.0, "altitude_m": 16200}
+      }
+    },
+    "SE": {
+      "latitude": 39.0,
+      "longitude": -75.0,
+      "levels": {
+        "500": {"u_ms": 9.0, "v_ms": 3.0, "altitude_m": 5650},
+        "250": {"u_ms": 14.0, "v_ms": -5.0, "altitude_m": 10250},
+        "100": {"u_ms": 20.0, "v_ms": -8.0, "altitude_m": 16250}
+      }
+    },
+    "NW": {
+      "latitude": 40.0,
+      "longitude": -76.0,
+      "levels": {
+        "500": {"u_ms": 7.0, "v_ms": 1.0, "altitude_m": 5700},
+        "250": {"u_ms": 11.0, "v_ms": -6.0, "altitude_m": 10300},
+        "100": {"u_ms": 17.0, "v_ms": -9.0, "altitude_m": 16300}
+      }
+    },
+    "NE": {
+      "latitude": 40.0,
+      "longitude": -75.0,
+      "levels": {
+        "500": {"u_ms": 10.0, "v_ms": 2.0, "altitude_m": 5750},
+        "250": {"u_ms": 15.0, "v_ms": -7.0, "altitude_m": 10350},
+        "100": {"u_ms": 21.0, "v_ms": -10.0, "altitude_m": 16350}
+      }
+    }
+  },
+  "request": {
+    "latitude": 39.9526,
+    "longitude": -75.1636,
+    "altitude_m": 10000
+  }
+}
