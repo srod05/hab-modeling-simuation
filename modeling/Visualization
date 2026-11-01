@@ -1,0 +1,265 @@
+"""Map predicted balloon GPS samples using Folium (``pip install folium``).
+
+Pass the trajectory model's output to ``visualize_trajectory`` as points with
+latitude/longitude fields, or as ``(latitude, longitude[, timestamp])`` tuples.
+Provide a verified GPS coordinate for the chosen launch spot; no specific
+empty land parcel at Warwick County Park is assumed or marked automatically.
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import math
+import webbrowser
+from collections.abc import Iterable, Mapping
+from pathlib import Path
+from typing import Any, Sequence
+
+import folium
+
+METERS_PER_DEG_LAT = 111320.0
+
+
+def _read_point(point: Any) -> tuple[float, float, str | None]:
+	"""Normalize common trajectory point formats and validate GPS ranges."""
+	timestamp = None
+	if isinstance(point, Mapping):
+		latitude = point.get("latitude", point.get("lat"))
+		longitude = point.get("longitude", point.get("lon", point.get("lng")))
+		timestamp = point.get("timestamp", point.get("time"))
+	else:
+		values = tuple(point)
+		if len(values) < 2:
+			raise ValueError(f"Expected a latitude/longitude pair: {point!r}")
+		latitude, longitude = values[:2]
+		if len(values) > 2:
+			timestamp = values[2]
+
+	if latitude is None or longitude is None:
+		raise ValueError(f"Trajectory point has no latitude/longitude: {point!r}")
+	latitude, longitude = float(latitude), float(longitude)
+	if not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
+		raise ValueError(f"GPS coordinates out of range: {latitude}, {longitude}")
+	return latitude, longitude, None if timestamp is None else str(timestamp)
+
+
+def _parse_launch_location(location: str) -> tuple[float, float]:
+	"""Parse a decimal-degree ``latitude, longitude`` GPS coordinate."""
+	coordinates = location.strip().strip("()").split(",")
+	if len(coordinates) != 2:
+		raise ValueError("Enter GPS coordinates as latitude, longitude.")
+	try:
+		latitude, longitude = (float(coordinate.strip()) for coordinate in coordinates)
+	except ValueError as error:
+		raise ValueError("GPS coordinates must be decimal numbers.") from error
+	return _read_point((latitude, longitude))[:2]
+
+
+def _read_csv_number(
+	row: Mapping[str, str | None], field: str, row_number: int
+) -> float:
+	value = row.get(field)
+	if value is None or not value.strip():
+		raise ValueError(f"Drift CSV row {row_number} has no {field!r} value.")
+	try:
+		return float(value)
+	except ValueError as error:
+		raise ValueError(
+			f"Drift CSV row {row_number} has an invalid {field!r} value: {value!r}."
+		) from error
+
+
+def _read_optional_csv_number(
+	row: Mapping[str, str | None], field: str, row_number: int
+) -> float | None:
+	value = row.get(field)
+	if value is None or not value.strip():
+		return None
+	return _read_csv_number(row, field, row_number)
+
+
+def load_drift_trajectory(
+	drift_file: str | Path,
+	launch_location: tuple[float, float],
+) -> list[dict[str, float | str | None]]:
+	"""Load a wind-derived drift CSV and place its path at the launch coordinate."""
+	launch_lat, launch_lon, _ = _read_point(launch_location)
+	with Path(drift_file).open(newline="", encoding="utf-8") as file:
+		reader = csv.DictReader(file)
+		headers = set(reader.fieldnames or ())
+		has_displacement = {"x", "y"} <= headers
+		has_gps = {"latitude", "longitude"} <= headers
+		if not has_displacement and not has_gps:
+			raise ValueError(
+				"Drift CSV must contain x/y displacement or latitude/longitude columns."
+			)
+
+		rows = list(reader)
+
+	if not rows:
+		raise ValueError("Drift CSV contains no trajectory samples.")
+
+	points: list[dict[str, float | str | None]] = [
+		{
+			"latitude": launch_lat,
+			"longitude": launch_lon,
+			"timestamp": "0",
+			"vx": None,
+			"vy": None,
+		}
+	]
+	origin_lat: float | None = None
+	origin_lon: float | None = None
+	longitude_scale = METERS_PER_DEG_LAT * math.cos(math.radians(launch_lat))
+	if abs(launch_lat) == 90:
+		raise ValueError("Cannot convert displacement at either geographic pole.")
+
+	for row_number, row in enumerate(rows, start=2):
+		if has_displacement:
+			latitude = (
+				launch_lat
+				+ _read_csv_number(row, "x", row_number) / METERS_PER_DEG_LAT
+			)
+			longitude = (
+				launch_lon
+				+ _read_csv_number(row, "y", row_number) / longitude_scale
+			)
+		else:
+			row_lat = _read_csv_number(row, "latitude", row_number)
+			row_lon = _read_csv_number(row, "longitude", row_number)
+			if origin_lat is None or origin_lon is None:
+				origin_lat, origin_lon = row_lat, row_lon
+			latitude = launch_lat + row_lat - origin_lat
+			longitude = launch_lon + row_lon - origin_lon
+
+		timestamp = row.get("time") or row.get("timestamp")
+		points.append({
+			"latitude": latitude,
+			"longitude": longitude,
+			"timestamp": timestamp,
+			"vx": _read_optional_csv_number(row, "vx", row_number),
+			"vy": _read_optional_csv_number(row, "vy", row_number),
+		})
+
+	return points
+
+
+def visualize_trajectory(
+	trajectory: Iterable[Any],
+	launch_location: tuple[float, float] | None = None,
+	output_html: str | Path = "balloon_trajectory_map.html",
+) -> Path:
+	"""Save an interactive map of model-predicted balloon positions.
+
+	``launch_location`` should be the verified ``(latitude, longitude)`` of
+	the selected launch site. If omitted, the first trajectory point is used.
+	Click the map for coordinates; each sample marker shows GPS and time.
+	"""
+	source_points = list(trajectory)
+	points = [_read_point(point) for point in source_points]
+	if launch_location is not None:
+		launch = _read_point(launch_location)[:2]
+	elif points:
+		launch = points[0][:2]
+	else:
+		raise ValueError("Supply trajectory points or a verified launch location.")
+
+	map_view = folium.Map(location=launch, zoom_start=14, control_scale=True)
+	folium.LatLngPopup().add_to(map_view)
+	folium.Marker(
+		location=launch,
+		tooltip="Launch / trajectory start",
+		popup=f"GPS: {launch[0]:.6f}, {launch[1]:.6f}",
+		icon=folium.Icon(color="green", icon="play"),
+	).add_to(map_view)
+
+	if points:
+		path = [(latitude, longitude) for latitude, longitude, _ in points]
+		folium.PolyLine(
+			path, color="blue", weight=4, opacity=0.85,
+			tooltip="Predicted balloon trajectory",
+		).add_to(map_view)
+
+		for index, (source_point, point) in enumerate(
+			zip(source_points, points), start=1
+		):
+			latitude, longitude, timestamp = point
+			description = f"Point {index}: {latitude:.6f}, {longitude:.6f}"
+			if timestamp:
+				description += f"<br>Time: {timestamp}"
+			if isinstance(source_point, Mapping):
+				wind = [
+					f"{component}: {source_point[component]}"
+					for component in ("vx", "vy")
+					if source_point.get(component) is not None
+				]
+				if wind:
+					description += f"<br>Wind (m/s): {', '.join(wind)}"
+			folium.CircleMarker(
+				location=(latitude, longitude), radius=4, color="blue",
+				fill=True, fill_opacity=0.85,
+				popup=folium.Popup(description, max_width=300),
+			).add_to(map_view)
+
+		last_lat, last_lon, last_time = points[-1]
+		latest = f"Latest predicted GPS: {last_lat:.6f}, {last_lon:.6f}"
+		if last_time:
+			latest += f"<br>Time: {last_time}"
+		folium.Marker(
+			location=(last_lat, last_lon), tooltip="Latest predicted position",
+			popup=latest, icon=folium.Icon(color="red", icon="info-sign"),
+		).add_to(map_view)
+		map_view.fit_bounds(path, padding=(24, 24))
+
+	destination = Path(output_html)
+	destination.parent.mkdir(parents=True, exist_ok=True)
+	map_view.save(str(destination))
+	return destination
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+	default_drift_file = (
+		Path(__file__).resolve().parent.parent / "drift" / "balloon_trajectory.csv"
+	)
+	parser = argparse.ArgumentParser(
+		description="Map the wind-derived path in a drift trajectory CSV."
+	)
+	parser.add_argument(
+		"--launch-location",
+		help="Launch GPS in decimal degrees as 'latitude,longitude'.",
+	)
+	parser.add_argument(
+		"--drift-file",
+		type=Path,
+		default=default_drift_file,
+		help=f"Drift trajectory CSV (default: {default_drift_file}).",
+	)
+	parser.add_argument(
+		"--output",
+		type=Path,
+		default=Path("balloon_trajectory_map.html"),
+		help="Output HTML map path.",
+	)
+	args = parser.parse_args(argv)
+
+	try:
+		location_text = args.launch_location or input(
+			"Launch GPS (latitude, longitude in decimal degrees): "
+		)
+		launch_location = _parse_launch_location(location_text)
+		trajectory = load_drift_trajectory(args.drift_file, launch_location)
+		destination = visualize_trajectory(
+			trajectory, launch_location=launch_location, output_html=args.output
+		)
+	except (OSError, csv.Error, ValueError) as error:
+		parser.error(str(error))
+
+	print(f"Trajectory map saved to {destination.resolve()}")
+	if not webbrowser.open(destination.resolve().as_uri()):
+		print("Could not open a browser automatically; open the saved HTML map manually.")
+	return 0
+
+
+if __name__ == "__main__":
+	raise SystemExit(main())

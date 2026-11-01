@@ -49,6 +49,33 @@ Then open `trajectory_fit.png` in an image viewer. Use `open trajectory_fit.png`
 on macOS, `xdg-open trajectory_fit.png` on Linux, or `start trajectory_fit.png`
 from Windows Command Prompt.
 
+## Launch-day wind-drift map
+
+The interactive map reads the wind-derived trajectory in
+`drift/balloon_trajectory.csv`. Install Folium with `python -m pip install folium`,
+then run this from the repository root:
+
+```sh
+python modeling/Visualization
+```
+
+Enter the launch GPS coordinate as decimal-degree latitude and longitude,
+separated by a comma (for example, `40.0, -75.0`). The map is saved as
+`balloon_trajectory_map.html` and opened in your browser. The CSV's cumulative
+`x`/`y` displacement is placed at the entered launch coordinate, and each
+sample's recorded wind components are shown in its marker popup. To use another
+drift file or provide the coordinate without a prompt:
+
+```sh
+python modeling/Visualization \
+  --launch-location "40.0, -75.0" \
+  --drift-file drift/balloon_trajectory.csv \
+  --output balloon_trajectory_map.html
+```
+
+This maps the trajectory already stored in the drift CSV; it does not rerun the
+wind simulation or fetch new wind data.
+
 ### Using other trajectory data
 
 The CSV can contain one position per row (`x,y` or `x,y,z`). If it has no time
